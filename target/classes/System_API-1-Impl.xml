@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<flow name="System_API-1-ImplFlow" doc:id="eaa9c0cc-6fa6-4672-86cb-9d39b33ec218" >
+		<validation:is-false doc:name="Null Check of UserID" doc:id="3331dcd6-c549-477d-928e-f8041100dcdf" expression="#[sizeOf(attributes.queryParams)==0]">
+			<error-mapping sourceType="VALIDATION:INVALID_BOOLEAN" targetType="NULL:USERID" />
+		</validation:is-false>
+		<set-variable value="#[attributes.queryParams]" doc:name="USERID" doc:id="11187066-a431-4ba2-a190-4b8968e07917" variableName="USERID" />
+		<db:select doc:name="details table" doc:id="9d9ff17f-6be3-49f5-a3c9-e11591a51fce" config-ref="Database_Config" >
+			<db:sql ><![CDATA[SELECT * FROM `assignment1-1`.details where (USERID=:USERID1 or USERID=:USERID2 or USERID=:USERID3);]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{USERID1:attributes.queryParams.UserID1,
+ USERID2:attributes.queryParams.UserID2,
+ USERID3:attributes.queryParams.UserID3
+	
+}]]]></db:input-parameters>
+		</db:select>
+		<set-variable value="#[payload.USERID]" doc:name="UID" doc:id="81ef23ee-0a5d-4691-8e7e-bd1a9f3e42ca" variableName="UID"/>
+		<validation:is-true doc:name="Is true" doc:id="196ee138-6c79-4c7b-aca9-02b7baa87661" expression="#[(sizeOf(payload.USERID))==(sizeOf(vars.USERID)*2)]"/>
+		<ee:transform doc:name="Query" doc:id="a0594320-d0b6-4230-b0a8-e5f713421676" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map{
+	abc:"select USERID,$($.COLUMNAMES) from $($.TABLENAME) where USERID='$($.USERID)'" 
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<parallel-foreach doc:name="Parallel For Each" doc:id="5196b38d-5d3e-432f-aa6d-7783e52e492b" collection="#[payload.abc]" >
+			<db:select doc:name="array of records" doc:id="5bd36306-ba36-402c-a0f3-f4706b48833b" config-ref="Database_Config" >
+				<db:sql ><![CDATA[#[payload]]]></db:sql>
+			</db:select>
+		</parallel-foreach>
+		<ee:transform doc:name="final mapping" doc:id="604e6114-6753-4da9-8ee7-c2605f1a5e89">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+var abc = flatten(payload.payload)
+---
+(abc groupBy ((item, index) -> item.USERID) mapObject ((value, key, index) -> (key):value reduce ($$++$))) orderBy ((value, key) -> value.DEPTID ) groupBy ((item, index) -> "DEPTID " ++ item.DEPTID)]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+		<error-handler >
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate-Empty_array_validation" doc:id="4e51ceef-85ee-4b34-9017-71ac40c020a1" type="VALIDATION:INVALID_BOOLEAN" >
+				<ee:transform doc:name="Transform Message" doc:id="589a8eac-832d-4f94-a25b-5e8b4d2e5b34">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+vars.USERID mapObject (
+	 if(vars.UID== null) ("msg":"No records available for UserID = " ++ $)
+	 else (("msg":"No records available for UserID = " ++ $) if((not ((vars.UID) contains $)))) 
+)]]></ee:set-payload>
+						</ee:message>
+						<ee:variables>
+						</ee:variables>
+					</ee:transform>
+				<ee:transform doc:name="Transform Message" doc:id="6b047b96-cc95-4ce1-ba1b-9b0b212f03f0" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+   "error": "Invalid UserID",
+
+   "message": payload,
+
+   "detail": "Ensure that the UserID included in the request are correct"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate-Null_Check_validation" doc:id="3c2edde4-8df3-496e-9244-a81d5349c261" type="NULL:USERID">
+				<ee:transform doc:name="Transform Message" doc:id="a929d8ba-b9c0-4ec0-bd52-08bb644f21d7" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+
+{
+   "error": "UserID Not available",
+
+   "message": "Value for at least one user-id should be present in the request",
+
+   "detail": "Ensure that the UserID included in the request"
+}
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+			<on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="991b31ad-8b21-4dde-b764-007cc7f2d7b8" type=" DB:CONNECTIVITY">
+				<ee:transform doc:name="Transform Message" doc:id="c4875910-ddd8-4bb4-95f6-3aa1718cb9f4" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"error": "Connectivity Error",
+
+   "message": "Incorrect username and password or database path",
+
+   "detail": "Ensure that the username and password or path included in the Database are correct"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</on-error-propagate>
+		</error-handler>
+	</flow>
+</mule>
